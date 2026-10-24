@@ -8,7 +8,6 @@ sample.
 from __future__ import annotations
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
@@ -19,7 +18,7 @@ from jbioemu2.atom import (
     DampedHarmonicTimeEmbedding,
 )
 from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
-from jbioemu2.nn import FourierEmbedding, LayerNorm, Linear, Sequential, Transition
+from jbioemu2.nn import FourierEmbedding, LayerNorm, Linear, Sequential, Transition, scan_layers
 from jbioemu2.transformer import (
     ConditionedSlidingWindowTransformerLayer,
     ConditionedTransformerLayer,
@@ -201,8 +200,7 @@ class StructureModule(eqx.Module):
     atom_feature_embedder: AtomAttentionEncoder
     r_token_to_a: Linear
     readout: ReadoutSuperposition
-    layers: DualStreamDiffusionLayer  # stacked parameters
-    layers_static: DualStreamDiffusionLayer = eqx.field(static=True)
+    layers: DualStreamDiffusionLayer  # stacked: leading layer axis
 
     def static_context(
         self,
@@ -240,17 +238,14 @@ class StructureModule(eqx.Module):
             gather_center_atoms(r, f.token_center_atom, f.token_valid)
         )
 
-        @jax.checkpoint
-        def body(carry, params):
-            layer = eqx.combine(params, self.layers_static)
-            return layer(*carry, context.z, context.atoms.p, c, f), None
+        def step(layer, carry):
+            return layer(*carry, context.z, context.atoms.p, c, f)
 
-        a, q = jax.lax.scan(body, (a, q), self.layers)[0]
+        a, q = scan_layers(step, (a, q), self.layers)
         return self.readout(a, q, f)
 
     @classmethod
     def from_torch(cls, m):
-        layers, layers_static = stack_modules([from_torch(layer) for layer in m.layers])
         return cls(
             **{
                 n: from_torch(getattr(m, n))
@@ -263,6 +258,5 @@ class StructureModule(eqx.Module):
                     "readout",
                 )
             },
-            layers=layers,
-            layers_static=layers_static,
+            layers=stack_modules([from_torch(layer) for layer in m.layers]),
         )

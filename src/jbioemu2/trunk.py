@@ -10,13 +10,8 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.backend import (
-    AbstractFromTorch,
-    from_torch,
-    register_from_torch,
-    stack_modules,
-)
-from jbioemu2.nn import Embedding, FourierEmbedding, LayerNorm, Linear, Transition
+from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
+from jbioemu2.nn import Embedding, FourierEmbedding, LayerNorm, Linear, Transition, scan_layers
 
 _INF = 1e6  # torch reference masks attention logits with -1e6, not -inf
 
@@ -233,32 +228,11 @@ class PairMixerMSALayer(AbstractFromTorch):
         return z + self.z_transition(z), m
 
 
-class _Stack(eqx.Module):
-    """Identical blocks applied in sequence via ``lax.scan`` over stacked parameters."""
-
-    params: eqx.Module
-    static: eqx.Module = eqx.field(static=True)
-
-    @classmethod
-    def of(cls, blocks: list[eqx.Module]):
-        params, static = stack_modules(blocks)
-        return cls(params=params, static=static)
-
-    def scan(self, step, carry):
-        """``step(block, carry) -> carry`` over the blocks, checkpointing each."""
-
-        @jax.checkpoint
-        def body(carry, params):
-            return step(eqx.combine(params, self.static), carry), None
-
-        return jax.lax.scan(body, carry, self.params)[0]
-
-
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerMSAModule")
 class PairMixerMSAModule(eqx.Module):
     s_proj: Linear
     msa_proj: Linear
-    layers: _Stack
+    layers: PairMixerMSALayer  # stacked: leading layer axis
     use_paired_feature: bool = eqx.field(static=True)
 
     def __call__(
@@ -280,30 +254,30 @@ class PairMixerMSAModule(eqx.Module):
         def step(layer, carry):
             return layer(*carry, pair_mask, msa_mask)
 
-        return self.layers.scan(step, (z, m))[0]
+        return scan_layers(step, (z, m), self.layers)[0]
 
     @classmethod
     def from_torch(cls, m):
         return cls(
             s_proj=from_torch(m.s_proj),
             msa_proj=from_torch(m.msa_proj),
-            layers=_Stack.of([from_torch(layer) for layer in m.layers]),
+            layers=stack_modules([from_torch(layer) for layer in m.layers]),
             use_paired_feature=m.use_paired_feature,
         )
 
 
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerModule")
 class PairMixerModule(eqx.Module):
-    layers: _Stack
+    layers: PairMixerLayer  # stacked: leading layer axis
 
     def __call__(
         self, z: Float[Array, "T T Z"], pair_mask: Bool[Array, "T T"]
     ) -> Float[Array, "T T Z"]:
-        return self.layers.scan(lambda layer, z: layer(z, pair_mask), z)
+        return scan_layers(lambda layer, z: layer(z, pair_mask), z, self.layers)
 
     @classmethod
     def from_torch(cls, m):
-        return cls(layers=_Stack.of([from_torch(layer) for layer in m.layers]))
+        return cls(layers=stack_modules([from_torch(layer) for layer in m.layers]))
 
 
 class TrunkInputs(eqx.Module):

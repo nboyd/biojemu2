@@ -72,12 +72,7 @@ class AbstractFromTorch(eqx.Module):
         return cls(**kwargs)
 
 
-def stack_modules(modules: list[eqx.Module]) -> tuple[eqx.Module, eqx.Module]:
-    """Split identical modules into (stacked array leaves, shared static structure)."""
-    arrays = [eqx.filter(m, eqx.is_array) for m in modules]
-    stacked = jax.tree.map(lambda *xs: jnp.stack(xs), *arrays)
-    _, static = eqx.partition(modules[0], eqx.is_array)
-    for m in modules[1:]:
-        if eqx.partition(m, eqx.is_array)[1] != static:
-            raise ValueError("stack_modules: modules differ in non-array structure")
-    return stacked, static
+def stack_modules(modules: list[eqx.Module]) -> eqx.Module:
+    """Identical modules as one module whose arrays gain a leading layer axis (for
+    :func:`jbioemu2.nn.scan_layers`). ``jax.tree.map`` rejects differing static structure."""
+    return jax.tree.map(lambda *xs: jnp.stack(xs), *modules)

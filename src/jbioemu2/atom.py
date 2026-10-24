@@ -15,7 +15,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
 from jbioemu2.backend import from_torch, register_from_torch, stack_modules
-from jbioemu2.nn import Embedding, Linear, Sequential
+from jbioemu2.nn import Embedding, Linear, Sequential, scan_layers
 from jbioemu2.transformer import (
     ConditionedSlidingWindowTransformerLayer,
     broadcast_tokens_to_atoms,
@@ -128,11 +128,10 @@ class AtomAttentionEncoder(eqx.Module):
     dt_gate_embed: MultiExponentialTimeEmbedding | None
     dt_gate_log_w: Float[Array, " K"] | None
     # Input-embedder only.
-    atom_encoder_layers: ConditionedSlidingWindowTransformerLayer | None  # stacked parameters
-    atom_encoder_static: ConditionedSlidingWindowTransformerLayer | None = eqx.field(static=True)
-    atom_to_token_trans: Sequential | None = None
-    queries: int = eqx.field(static=True, default=32)
-    keys: int = eqx.field(static=True, default=128)
+    atom_encoder_layers: ConditionedSlidingWindowTransformerLayer | None  # stacked
+    atom_to_token_trans: Sequential | None
+    queries: int = eqx.field(static=True)
+    keys: int = eqx.field(static=True)
 
     def static_context(
         self,
@@ -190,13 +189,11 @@ class AtomAttentionEncoder(eqx.Module):
 
     def encode_tokens(self, context: AtomStaticContext, f: AtomInputs) -> Float[Array, "T S"]:
         """Input embedder: windowed atom transformer, then mean-pool atoms onto tokens."""
-
-        @jax.checkpoint
-        def body(q, params):
-            layer = eqx.combine(params, self.atom_encoder_static)
-            return layer(q, context.p, context.c, f.atom_valid), None
-
-        q = jax.lax.scan(body, context.q, self.atom_encoder_layers)[0]
+        q = scan_layers(
+            lambda layer, q: layer(q, context.p, context.c, f.atom_valid),
+            context.q,
+            self.atom_encoder_layers,
+        )
         return scatter_mean_atoms_to_tokens(
             self.atom_to_token_trans(q), f.atom_to_token, f.atom_valid, f.token_valid.shape[0]
         )
@@ -206,9 +203,6 @@ class AtomAttentionEncoder(eqx.Module):
         def opt(name):
             return from_torch(getattr(m, name)) if hasattr(m, name) else None
 
-        layers, layers_static = None, None
-        if m.use_atom_encoder:
-            layers, layers_static = stack_modules([from_torch(x) for x in m.atom_encoder_layers])
         return cls(
             proj_atom_continuous=from_torch(m.proj_atom_continuous),
             embed_element=from_torch(m.embed_element),
@@ -225,8 +219,11 @@ class AtomAttentionEncoder(eqx.Module):
             cond_to_q_trans=opt("cond_to_q_trans") if m.use_dynamics_conditioning else None,
             dt_gate_embed=opt("dt_gate_embed") if m.downscale_condition_contrib else None,
             dt_gate_log_w=opt("dt_gate_log_w") if m.downscale_condition_contrib else None,
-            atom_encoder_layers=layers,
-            atom_encoder_static=layers_static,
+            atom_encoder_layers=(
+                stack_modules([from_torch(x) for x in m.atom_encoder_layers])
+                if m.use_atom_encoder
+                else None
+            ),
             atom_to_token_trans=opt("atom_to_token_trans")
             if m.use_atom_to_token_aggregation
             else None,

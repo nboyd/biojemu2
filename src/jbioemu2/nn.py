@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from typing import Any
 
 import equinox as eqx
 import jax
@@ -129,3 +131,15 @@ class FourierEmbedding(AbstractFromTorch):
 
     def __call__(self, t: Float[Array, "*B"]) -> Float[Array, "*B D"]:
         return jnp.cos(2 * math.pi * self.proj(t[..., None]))
+
+
+def scan_layers(step: Callable[[Any, Any], Any], carry: Any, layers: eqx.Module) -> Any:
+    """``carry = step(layer, carry)`` for each layer of a stacked module (see
+    ``backend.stack_modules``): one rematerialised ``lax.scan`` body for all layers."""
+    params, static = eqx.partition(layers, eqx.is_array)
+
+    @jax.checkpoint
+    def body(carry, params):
+        return step(eqx.combine(params, static), carry), None
+
+    return jax.lax.scan(body, carry, params)[0]
