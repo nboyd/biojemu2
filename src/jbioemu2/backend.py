@@ -29,6 +29,12 @@ def register_from_torch(torch_path: str):
     return wrap
 
 
+def register_unwrap(torch_path: str, child: str) -> None:
+    """Convert torch modules of class ``torch_path`` as their submodule ``child``: for torch
+    wrappers that only reshape batch dimensions, which unbatched JAX code does not need."""
+    REGISTRY.append((torch_path, lambda m: from_torch(getattr(m, child))))
+
+
 @functools.singledispatch
 def from_torch(obj: Any) -> Any:
     raise TypeError(f"no from_torch conversion for {type(obj).__module__}.{type(obj).__name__}")

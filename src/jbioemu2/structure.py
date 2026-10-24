@@ -20,7 +20,6 @@ from jbioemu2.atom import (
 from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
 from jbioemu2.nn import FourierEmbedding, LayerNorm, Linear, Sequential, Transition, scan_layers
 from jbioemu2.transformer import (
-    ConditionedSlidingWindowTransformerLayer,
     ConditionedTransformerLayer,
     ada_ln,
     broadcast_tokens_to_atoms,
@@ -151,7 +150,7 @@ class DualStreamDiffusionLayer(AbstractFromTorch):
     """Windowed atom block, full token block, then cross-stream coupling."""
 
     coupling: DualStreamCoupling
-    atom_block: ConditionedSlidingWindowTransformerLayer
+    atom_block: ConditionedTransformerLayer
     token_block: ConditionedTransformerLayer
 
     def __call__(

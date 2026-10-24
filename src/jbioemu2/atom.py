@@ -17,7 +17,7 @@ from jaxtyping import Array, Bool, Float, Int
 from jbioemu2.backend import from_torch, register_from_torch, stack_modules
 from jbioemu2.nn import Embedding, Linear, Sequential, scan_layers
 from jbioemu2.transformer import (
-    ConditionedSlidingWindowTransformerLayer,
+    ConditionedTransformerLayer,
     broadcast_tokens_to_atoms,
     key_window_index,
     scatter_mean_atoms_to_tokens,
@@ -128,7 +128,7 @@ class AtomAttentionEncoder(eqx.Module):
     dt_gate_embed: MultiExponentialTimeEmbedding | None
     dt_gate_log_w: Float[Array, " K"] | None
     # Input-embedder only.
-    atom_encoder_layers: ConditionedSlidingWindowTransformerLayer | None  # stacked
+    atom_encoder_layers: ConditionedTransformerLayer | None  # stacked
     atom_to_token_trans: Sequential | None
     queries: int = eqx.field(static=True)
     keys: int = eqx.field(static=True)

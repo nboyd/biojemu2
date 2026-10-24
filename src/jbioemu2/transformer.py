@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch
+from jbioemu2.backend import from_torch, register_from_torch, register_unwrap
 from jbioemu2.nn import LayerNorm, Linear, Sequential, Transition, layer_norm
 
 _INF = 1e6  # the reference masks logits with -1e6
@@ -106,29 +106,20 @@ class AttentionPairBiasSlidingWindow(_PairBiasAttention):
         return self.proj_o(jax.nn.sigmoid(self.proj_g(s)) * o.reshape(N, C))
 
 
-@register_from_torch("bioemu2.biomoa.modules.transformer.AttentionLayer")
-class AttentionLayer(AbstractFromTorch):
-    pair_bias_attn: AttentionPairBias | AttentionPairBiasSlidingWindow
-
-    def __call__(self, x, pairs, mask):
-        return self.pair_bias_attn(x, pairs, mask)
-
-
-@register_from_torch("bioemu2.biomoa.modules.transformer.SlidingWindowAttentionLayer")
-class SlidingWindowAttentionLayer(AbstractFromTorch):
-    attention_layer: AttentionLayer
-
-    def __call__(self, x, pairs, mask):
-        return self.attention_layer(x, pairs, mask)
+_TRANSFORMER = "bioemu2.biomoa.modules.transformer"
+register_unwrap(f"{_TRANSFORMER}.AttentionLayer", "pair_bias_attn")
+register_unwrap(f"{_TRANSFORMER}.SlidingWindowAttentionLayer", "attention_layer")
+register_unwrap(f"{_TRANSFORMER}.ConditionedSlidingWindowTransformerLayer", "transformer_layer")
 
 
 @register_from_torch("bioemu2.biomoa.modules.transformer.ConditionedTransformerLayer")
 class ConditionedTransformerLayer(eqx.Module):
     """``x += gamma * op(lns * ((1 + alpha) LN(x) + beta))`` for attention, then a SwiGLU MLP;
-    alpha/beta/gamma come from the conditioning ``c`` (adaLN-Zero)."""
+    alpha/beta/gamma come from the conditioning ``c`` (adaLN-Zero). Token layers use full
+    attention over ``pairs [T, T, Z]``; atom layers windowed attention over ``[NW, W, H, P]``."""
 
     cond: Sequential
-    attention: AttentionLayer | SlidingWindowAttentionLayer
+    attention: AttentionPairBias | AttentionPairBiasSlidingWindow
     transition: Transition
     lns_scale: Float[Array, ""]
 
@@ -151,20 +142,6 @@ class ConditionedTransformerLayer(eqx.Module):
             transition=from_torch(m.transition),
             lns_scale=jnp.float32(m.lns_scale),
         )
-
-
-@register_from_torch("bioemu2.biomoa.modules.transformer.ConditionedSlidingWindowTransformerLayer")
-class ConditionedSlidingWindowTransformerLayer(AbstractFromTorch):
-    transformer_layer: ConditionedTransformerLayer
-
-    def __call__(
-        self,
-        x: Float[Array, "N D"],
-        pairs: Float[Array, "NW W H P"],
-        c: Float[Array, "N Dc"],
-        mask: Bool[Array, " N"],
-    ) -> Float[Array, "N D"]:
-        return self.transformer_layer(x, pairs, c, mask)
 
 
 def broadcast_tokens_to_atoms(
