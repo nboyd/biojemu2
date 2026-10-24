@@ -65,10 +65,6 @@ class Features(eqx.Module):
     token_idx_at_atom: Int[Array, " N"]
     dynamics: Dynamics
 
-    @property
-    def num_atoms(self) -> int:
-        return self.atom_pad_mask.shape[0]
-
     def trunk_inputs(self) -> TrunkInputs:
         return TrunkInputs(
             method_feature=self.method_feature,

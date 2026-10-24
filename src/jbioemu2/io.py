@@ -16,9 +16,7 @@ def save_model(model: BioEmu2, path: Path) -> None:
     path = Path(path)
     eqx.tree_serialise_leaves(path.with_suffix(".eqx"), model)
     skeleton = jax.tree.map(
-        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype) if eqx.is_array(x) else x,
-        model,
-        is_leaf=eqx.is_array,
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype) if eqx.is_array(x) else x, model
     )
     with open(path.with_suffix(".skeleton.pkl"), "wb") as f:
         pickle.dump(skeleton, f)

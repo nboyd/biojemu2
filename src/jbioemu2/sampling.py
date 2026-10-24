@@ -37,35 +37,19 @@ class EDMSampler(eqx.Module):
 
     num_steps: int = eqx.field(static=True)
     step_scale: float
-    noise_scale: float
-    gamma_0: float
-    gamma_min: float
-    rho: float = eqx.field(static=True)
-    align: bool = eqx.field(static=True)
+    noise_scale: float = 1.0
+    gamma_0: float = 0.8
+    gamma_min: float = 1.0
+    rho: float = eqx.field(static=True, default=7.0)
+    align: bool = eqx.field(static=True, default=True)
 
     @classmethod
     def structure_prediction(cls, num_steps: int) -> EDMSampler:
-        return cls(
-            num_steps,
-            step_scale=1.5,
-            noise_scale=1.0,
-            gamma_0=0.8,
-            gamma_min=1.0,
-            rho=7.0,
-            align=True,
-        )
+        return cls(num_steps, step_scale=1.5)
 
     @classmethod
     def equilibrium(cls, num_steps: int) -> EDMSampler:
-        return cls(
-            num_steps,
-            step_scale=1.0,
-            noise_scale=1.0,
-            gamma_0=0.8,
-            gamma_min=1.0,
-            rho=7.0,
-            align=True,
-        )
+        return cls(num_steps, step_scale=1.0)
 
 
 class Noise(eqx.Module):
