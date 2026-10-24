@@ -26,6 +26,7 @@ def _resolve(path: str):
 for _path, _convert in REGISTRY:
     from_torch.register(_resolve(_path), _convert)
 from_torch.register(torch.Tensor, lambda t: jnp.array(t.detach().cpu().float().numpy()))
+from_torch.register(torch.nn.ModuleList, lambda m: tuple(from_torch(child) for child in m))
 
 
 def load_reference_model(checkpoint_path: Path, config_path: Path) -> torch.nn.Module:

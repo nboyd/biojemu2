@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.backend import from_torch, register_from_torch, register_unwrap
+from jbioemu2.backend import AbstractFromTorch, register_from_torch, register_unwrap
 from jbioemu2.nn import LayerNorm, Linear, Sequential, Transition, layer_norm
 
 _INF = 1e6  # the reference masks logits with -1e6
@@ -41,8 +41,9 @@ def window_keys(x: Float[Array, "N ..."], queries: int, keys: int) -> Float[Arra
     return jnp.where(in_range.reshape(in_range.shape + (1,) * (x.ndim - 1)), gathered, 0)
 
 
-class _PairBiasAttention(eqx.Module):
-    """Shared projections of ``AttentionPairBias`` / ``AttentionPairBiasSlidingWindow``."""
+class _PairBiasAttention(AbstractFromTorch):
+    """Shared projections of ``AttentionPairBias`` / ``AttentionPairBiasSlidingWindow``
+    (``initial_norm=True``, unused by BioEmu2, fails conversion on its extra ``norm_s``)."""
 
     proj_qkv: Linear
     proj_q_bias: Float[Array, " C"]
@@ -57,18 +58,6 @@ class _PairBiasAttention(eqx.Module):
         logits = jnp.einsum("...qhd,...khd->...hqk", q, k) / np.sqrt(q.shape[-1]) + bias
         logits = jnp.where(key_mask[..., None, None, :], logits, -_INF)
         return jnp.einsum("...hqk,...khd->...qhd", jax.nn.softmax(logits, axis=-1), v)
-
-    @classmethod
-    def from_torch(cls, m):
-        if getattr(m, "initial_norm", False):
-            raise NotImplementedError("initial_norm=True is not used by BioEmu2")
-        return cls(
-            **{
-                n: from_torch(getattr(m, n))
-                for n in ("proj_qkv", "proj_q_bias", "proj_g", "norm_z", "proj_z", "proj_o")
-            },
-            num_heads=m.num_heads,
-        )
 
 
 @register_from_torch("bioemu2.biomoa.ops.attention_pair_bias.AttentionPairBias")
@@ -113,7 +102,7 @@ register_unwrap(f"{_TRANSFORMER}.ConditionedSlidingWindowTransformerLayer", "tra
 
 
 @register_from_torch("bioemu2.biomoa.modules.transformer.ConditionedTransformerLayer")
-class ConditionedTransformerLayer(eqx.Module):
+class ConditionedTransformerLayer(AbstractFromTorch):
     """``x += gamma * op(lns * ((1 + alpha) LN(x) + beta))`` for attention, then a SwiGLU MLP;
     alpha/beta/gamma come from the conditioning ``c`` (adaLN-Zero). Token layers use full
     attention over ``pairs [T, T, Z]``; atom layers windowed attention over ``[NW, W, H, P]``."""
@@ -121,7 +110,7 @@ class ConditionedTransformerLayer(eqx.Module):
     cond: Sequential
     attention: AttentionPairBias | AttentionPairBiasSlidingWindow
     transition: Transition
-    lns_scale: Float[Array, ""]
+    lns_scale: Float[Array, ""] = eqx.field(converter=jnp.float32)  # a float in torch
 
     def __call__(
         self,
@@ -133,15 +122,6 @@ class ConditionedTransformerLayer(eqx.Module):
         attn_a, attn_b, attn_g, mlp_a, mlp_b, mlp_g = jnp.split(self.cond(c), 6, axis=-1)
         x = x + attn_g * self.attention(self.lns_scale * ada_ln(x, attn_a, attn_b), pairs, mask)
         return x + mlp_g * self.transition(self.lns_scale * ada_ln(x, mlp_a, mlp_b))
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            cond=from_torch(m.cond),
-            attention=from_torch(m.attention),
-            transition=from_torch(m.transition),
-            lns_scale=jnp.float32(m.lns_scale),
-        )
 
 
 def broadcast_tokens_to_atoms(

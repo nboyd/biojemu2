@@ -5,6 +5,8 @@ Everything is unbatched: ``T`` tokens, ``S`` MSA rows.
 
 from __future__ import annotations
 
+from typing import Literal
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -21,7 +23,7 @@ _INF = 1e6  # torch reference masks attention logits with -1e6, not -inf
 @register_from_torch("bioemu2.biomoa.ops.triangle_multiplication.TriangleMultiplicationCueqTiled")
 @register_from_torch("bioemu2.biomoa.ops.triangle_multiplication.TriangleMultiplicationOutgoing")
 @register_from_torch("bioemu2.biomoa.ops.triangle_multiplication.TriangleMultiplicationIncoming")
-class TriangleMultiplication(eqx.Module):
+class TriangleMultiplication(AbstractFromTorch):
     """Gated triangle multiplicative update (the "full" variant's math; all variants share it)."""
 
     norm_in: LayerNorm
@@ -30,26 +32,16 @@ class TriangleMultiplication(eqx.Module):
     norm_out: LayerNorm
     p_out: Linear
     g_out: Linear
-    outgoing: bool = eqx.field(static=True)
+    mode: Literal["outgoing", "incoming"] = eqx.field(static=True)
 
     def __call__(self, z: Float[Array, "T T D"], mask: Bool[Array, "T T"]) -> Float[Array, "T T D"]:
         zn = self.norm_in(z)
         proj = self.p_in(zn) * jax.nn.sigmoid(self.g_in(zn))
         proj = jnp.where(mask[..., None], proj, 0.0)
         a, b = jnp.split(proj, 2, axis=-1)
-        spec = "ikd,jkd->ijd" if self.outgoing else "kid,kjd->ijd"
+        spec = "ikd,jkd->ijd" if self.mode == "outgoing" else "kid,kjd->ijd"
         out = jnp.einsum(spec, a, b)
         return self.p_out(self.norm_out(out)) * jax.nn.sigmoid(self.g_out(zn))
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            **{
-                n: from_torch(getattr(m, n))
-                for n in ("norm_in", "p_in", "g_in", "norm_out", "p_out", "g_out")
-            },
-            outgoing=m.mode == "outgoing",
-        )
 
 
 @register_from_torch("bioemu2.biomoa.ops.outer_product_mean.OuterProductMeanVanilla")
@@ -69,7 +61,7 @@ class OuterProductMean(AbstractFromTorch):
 
 
 @register_from_torch("bioemu2.biomoa.ops.pair_weighted_averaging.PairWeightedAveraging")
-class PairWeightedAveraging(eqx.Module):
+class PairWeightedAveraging(AbstractFromTorch):
     norm_m: LayerNorm
     norm_z: LayerNorm
     proj_m: Linear
@@ -87,16 +79,6 @@ class PairWeightedAveraging(eqx.Module):
         weights = jax.nn.softmax(jnp.where(mask[None], bias, -_INF), axis=-1)
         o = jnp.einsum("hij,sjhd->sihd", weights, v).reshape(*m.shape[:2], -1)
         return self.proj_o(jax.nn.sigmoid(self.proj_g(m)) * o)
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            **{
-                n: from_torch(getattr(m, n))
-                for n in ("norm_m", "norm_z", "proj_m", "proj_g", "proj_z", "proj_o")
-            },
-            num_heads=m.num_heads,
-        )
 
 
 @register_from_torch("bioemu2.biomoa.modules.conditioning.ContactConditioning")
@@ -128,7 +110,7 @@ class ContactConditioning(AbstractFromTorch):
 
 
 @register_from_torch("bioemu2.biomoa.modules.conditioning.MethodConditioning")
-class MethodConditioning(eqx.Module):
+class MethodConditioning(AbstractFromTorch):
     embedding: Embedding
     pair_embedding: Embedding | None
 
@@ -141,13 +123,6 @@ class MethodConditioning(eqx.Module):
         e = self.pair_embedding(method_feature)
         pair_mask = token_mask[:, None] & token_mask[None, :]
         return single, jnp.where(pair_mask[..., None], e[:, None] + e[None, :], 0.0)
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            embedding=from_torch(m.embedding),
-            pair_embedding=None if m.pair_embedding is None else from_torch(m.pair_embedding),
-        )
 
 
 @register_from_torch(
@@ -300,21 +275,22 @@ class TrunkInputs(eqx.Module):
 
 
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerSequenceEmbedder")
-class PairMixerSequenceEmbedder(eqx.Module):
+class PairMixerSequenceEmbedder(AbstractFromTorch):
     s_init: Linear
     z_init_1: Linear
     z_init_2: Linear
     token_bonds: Linear
     rel_pos: RelativePositionEncoder
-    contact_conditioning: ContactConditioning | None
-    method_conditioning: MethodConditioning | None
     msa_module: PairMixerMSAModule
     pairmixer_module: PairMixerModule
     s_recycle: Linear
     z_recycle: Linear
     s_norm: LayerNorm
     z_norm: LayerNorm
-    uncond_transition: Transition | None
+    # Optional (absent from the torch module when disabled).
+    contact_conditioning: ContactConditioning | None = None
+    method_conditioning: MethodConditioning | None = None
+    uncond_transition: Transition | None = None
 
     def _initial(
         self, s_inputs: Float[Array, "T Ds"], f: TrunkInputs
@@ -373,36 +349,6 @@ class PairMixerSequenceEmbedder(eqx.Module):
             raise ValueError("this checkpoint has no unconditional branch")
         s_init, z_init = self._initial(s_inputs, f)
         return s_init, z_init + self.uncond_transition(self.z_norm(z_init))
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            **{
-                n: from_torch(getattr(m, n))
-                for n in (
-                    "s_init",
-                    "z_init_1",
-                    "z_init_2",
-                    "token_bonds",
-                    "rel_pos",
-                    "msa_module",
-                    "pairmixer_module",
-                    "s_recycle",
-                    "z_recycle",
-                    "s_norm",
-                    "z_norm",
-                )
-            },
-            contact_conditioning=(
-                from_torch(m.contact_conditioning) if m.use_contact_conditioning else None
-            ),
-            method_conditioning=(
-                from_torch(m.method_conditioning) if m.use_method_conditioning else None
-            ),
-            uncond_transition=(
-                from_torch(m.uncond_transition) if m.use_unconditional_branch else None
-            ),
-        )
 
 
 @register_from_torch("bioemu2.biomoa.modules.embedders.DistogramModule")

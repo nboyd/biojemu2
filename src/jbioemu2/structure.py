@@ -28,15 +28,15 @@ from jbioemu2.transformer import (
 
 
 @register_from_torch("bioemu2.biomoa.modules.diffusion.SingleConditioning")
-class SingleConditioning(eqx.Module):
+class SingleConditioning(AbstractFromTorch):
     norm_single: LayerNorm
     single_embed: Linear
     fourier_embed: FourierEmbedding
     norm_fourier: LayerNorm
     fourier_to_single: Linear
-    dt_embed: DampedHarmonicTimeEmbedding | None
-    dt_embed_to_single: Linear | None
     transitions: tuple[Transition, ...]
+    dt_embed: DampedHarmonicTimeEmbedding | None = None
+    dt_embed_to_single: Linear | None = None
 
     def __call__(
         self,
@@ -54,28 +54,9 @@ class SingleConditioning(eqx.Module):
             s = s + transition(s)
         return s
 
-    @classmethod
-    def from_torch(cls, m):
-        dt = m.use_dt_conditioning
-        return cls(
-            **{
-                n: from_torch(getattr(m, n))
-                for n in (
-                    "norm_single",
-                    "single_embed",
-                    "fourier_embed",
-                    "norm_fourier",
-                    "fourier_to_single",
-                )
-            },
-            dt_embed=from_torch(m.dt_embed) if dt else None,
-            dt_embed_to_single=from_torch(m.dt_embed_to_single) if dt else None,
-            transitions=tuple(from_torch(t) for t in m.transitions),
-        )
-
 
 @register_from_torch("bioemu2.biomoa.modules.diffusion.PairwiseConditioning")
-class PairwiseConditioning(eqx.Module):
+class PairwiseConditioning(AbstractFromTorch):
     dim_pairwise_init_proj: Sequential
     transitions: tuple[Transition, ...]
 
@@ -86,13 +67,6 @@ class PairwiseConditioning(eqx.Module):
         for transition in self.transitions:
             z = z + transition(z)
         return z
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            dim_pairwise_init_proj=from_torch(m.dim_pairwise_init_proj),
-            transitions=tuple(from_torch(t) for t in m.transitions),
-        )
 
 
 class StructureInputs(eqx.Module):
@@ -106,12 +80,12 @@ class StructureInputs(eqx.Module):
 
 
 @register_from_torch("bioemu2.biomoa.modules.diffusion.DualStreamCoupling")
-class DualStreamCoupling(eqx.Module):
+class DualStreamCoupling(AbstractFromTorch):
     s_to_q_mixer: Transition
     q_to_s_mixer: Transition
     q_coupling_cond: Sequential
     s_coupling_cond: Sequential
-    lns_scale: Float[Array, ""]
+    lns_scale: Float[Array, ""] = eqx.field(converter=jnp.float32)  # a float in torch
 
     def __call__(
         self,
@@ -133,16 +107,6 @@ class DualStreamCoupling(eqx.Module):
         )
         q_to_s = s_gamma * self.q_to_s_mixer(self.lns_scale * ada_ln(q_to_s, s_alpha, s_beta))
         return s + q_to_s, q + s_to_q
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            **{
-                n: from_torch(getattr(m, n))
-                for n in ("s_to_q_mixer", "q_to_s_mixer", "q_coupling_cond", "s_coupling_cond")
-            },
-            lns_scale=jnp.float32(m.lns_scale),
-        )
 
 
 @register_from_torch("bioemu2.biomoa.modules.diffusion.DualStreamDiffusionLayer")

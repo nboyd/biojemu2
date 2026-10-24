@@ -14,7 +14,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.backend import from_torch, register_from_torch, stack_modules
+from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
 from jbioemu2.nn import Embedding, Linear, Sequential, scan_layers
 from jbioemu2.transformer import (
     ConditionedTransformerLayer,
@@ -26,19 +26,15 @@ from jbioemu2.transformer import (
 
 
 @register_from_torch("bioemu2.biomoa.modules.time.MultiExponentialTimeEmbedding")
-class MultiExponentialTimeEmbedding(eqx.Module):
+class MultiExponentialTimeEmbedding(AbstractFromTorch):
     taus: Float[Array, " K"]
 
     def __call__(self, t: Float[Array, ""]) -> Float[Array, " K"]:
         return jnp.exp(-t / self.taus)
 
-    @classmethod
-    def from_torch(cls, m):
-        return cls(taus=from_torch(m.taus))
-
 
 @register_from_torch("bioemu2.biomoa.modules.time.DampedHarmonicTimeEmbedding")
-class DampedHarmonicTimeEmbedding(eqx.Module):
+class DampedHarmonicTimeEmbedding(AbstractFromTorch):
     taus: Float[Array, " K"]
     quality_factors: Float[Array, " Q"]
 
@@ -49,10 +45,6 @@ class DampedHarmonicTimeEmbedding(eqx.Module):
         sin = (envelope[:, None] * jnp.sin(phase)).reshape(-1)
         cos = (envelope[:, None] * jnp.cos(phase)).reshape(-1)
         return jnp.concatenate([envelope, sin, cos])
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(taus=from_torch(m.taus), quality_factors=from_torch(m.quality_factors))
 
 
 class AtomStaticContext(eqx.Module):
@@ -200,13 +192,13 @@ class AtomAttentionEncoder(eqx.Module):
 
     @classmethod
     def from_torch(cls, m):
-        def opt(name):
+        def opt(name):  # optional submodules exist exactly when their flag is set
             return from_torch(getattr(m, name)) if hasattr(m, name) else None
 
         return cls(
             proj_atom_continuous=from_torch(m.proj_atom_continuous),
             embed_element=from_torch(m.embed_element),
-            embed_atom_name_chars=tuple(from_torch(e) for e in m.embed_atom_name_chars),
+            embed_atom_name_chars=from_torch(m.embed_atom_name_chars),
             embed_atompair_ref_pos=from_torch(m.embed_atompair_ref_pos),
             embed_atompair_ref_dist=from_torch(m.embed_atompair_ref_dist),
             embed_atompair_mask=from_torch(m.embed_atompair_mask),
@@ -216,17 +208,15 @@ class AtomAttentionEncoder(eqx.Module):
             s_to_c_trans=opt("s_to_c_trans"),
             z_to_p_trans=opt("z_to_p_trans"),
             r_to_q_trans=opt("r_to_q_trans"),
-            cond_to_q_trans=opt("cond_to_q_trans") if m.use_dynamics_conditioning else None,
-            dt_gate_embed=opt("dt_gate_embed") if m.downscale_condition_contrib else None,
-            dt_gate_log_w=opt("dt_gate_log_w") if m.downscale_condition_contrib else None,
+            cond_to_q_trans=opt("cond_to_q_trans"),
+            dt_gate_embed=opt("dt_gate_embed"),
+            dt_gate_log_w=opt("dt_gate_log_w"),
             atom_encoder_layers=(
                 stack_modules([from_torch(x) for x in m.atom_encoder_layers])
                 if m.use_atom_encoder
                 else None
             ),
-            atom_to_token_trans=opt("atom_to_token_trans")
-            if m.use_atom_to_token_aggregation
-            else None,
+            atom_to_token_trans=opt("atom_to_token_trans"),
             queries=m.atoms_per_window_queries,
             keys=m.atoms_per_window_keys,
         )
@@ -240,7 +230,7 @@ class TokenFeatures(eqx.Module):
 
 
 @register_from_torch("bioemu2.biomoa.modules.embedders.InputEmbedder")
-class InputEmbedder(eqx.Module):
+class InputEmbedder(AbstractFromTorch):
     atom_attention_encoder: AtomAttentionEncoder
     num_token_types: int = eqx.field(static=True)
     num_pocket_classes: int = eqx.field(static=True)
@@ -259,14 +249,4 @@ class InputEmbedder(eqx.Module):
                 jax.nn.one_hot(tokens.pocket_feature, self.num_pocket_classes),
             ],
             axis=-1,
-        )
-
-    @classmethod
-    def from_torch(cls, m):
-        if m.no_atom_encoder:
-            raise NotImplementedError("no_atom_encoder=True is not used by BioEmu2")
-        return cls(
-            atom_attention_encoder=from_torch(m.atom_attention_encoder),
-            num_token_types=m.num_token_types,
-            num_pocket_classes=m.num_pocket_classes,
         )
