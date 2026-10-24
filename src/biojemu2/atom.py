@@ -14,7 +14,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from biojemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
+from biojemu2.backend import AbstractFromTorch, register_from_torch, stacked
 from biojemu2.nn import Embedding, Linear, Sequential, scan_layers
 from biojemu2.transformer import (
     ConditionedTransformerLayer,
@@ -102,7 +102,7 @@ def broadcast_token_pair_to_atom_window(
 
 
 @register_from_torch("bioemu2.biomoa.modules.encoders.AtomAttentionEncoder")
-class AtomAttentionEncoder(eqx.Module):
+class AtomAttentionEncoder(AbstractFromTorch):
     proj_atom_continuous: Linear
     embed_element: Embedding
     embed_atom_name_chars: tuple[Embedding, ...]
@@ -112,18 +112,18 @@ class AtomAttentionEncoder(eqx.Module):
     c_to_p_trans_q: Sequential
     c_to_p_trans_k: Sequential
     p_mlp: Sequential
+    atoms_per_window_queries: int = eqx.field(static=True)
+    atoms_per_window_keys: int = eqx.field(static=True)
     # Structure-module only (``structure_prediction=True``).
-    s_to_c_trans: Sequential | None
-    z_to_p_trans: Sequential | None
-    r_to_q_trans: Linear | None
-    cond_to_q_trans: Linear | None
-    dt_gate_embed: MultiExponentialTimeEmbedding | None
-    dt_gate_log_w: Float[Array, " K"] | None
+    s_to_c_trans: Sequential | None = None
+    z_to_p_trans: Sequential | None = None
+    r_to_q_trans: Linear | None = None
+    cond_to_q_trans: Linear | None = None
+    dt_gate_embed: MultiExponentialTimeEmbedding | None = None
+    dt_gate_log_w: Float[Array, " K"] | None = None
     # Input-embedder only.
-    atom_encoder_layers: ConditionedTransformerLayer | None  # stacked
-    atom_to_token_trans: Sequential | None
-    queries: int = eqx.field(static=True)
-    keys: int = eqx.field(static=True)
+    atom_encoder_layers: ConditionedTransformerLayer | None = stacked(default=None)
+    atom_to_token_trans: Sequential | None = None
 
     def static_context(
         self,
@@ -131,7 +131,7 @@ class AtomAttentionEncoder(eqx.Module):
         s_trunk: Float[Array, "T S"] | None = None,
         z_trunk: Float[Array, "T T Z"] | None = None,
     ) -> AtomStaticContext:
-        W, H = self.queries, self.keys
+        W, H = self.atoms_per_window_queries, self.atoms_per_window_keys
         NW = f.ref_pos.shape[0] // W
         c = self.proj_atom_continuous(jnp.concatenate([f.ref_pos, f.charge[:, None]], axis=-1))
         c = c + self.embed_element(f.element)
@@ -188,37 +188,6 @@ class AtomAttentionEncoder(eqx.Module):
         )
         return scatter_mean_atoms_to_tokens(
             self.atom_to_token_trans(q), f.atom_to_token, f.atom_valid, f.token_valid.shape[0]
-        )
-
-    @classmethod
-    def from_torch(cls, m):
-        def opt(name):  # optional submodules exist exactly when their flag is set
-            return from_torch(getattr(m, name)) if hasattr(m, name) else None
-
-        return cls(
-            proj_atom_continuous=from_torch(m.proj_atom_continuous),
-            embed_element=from_torch(m.embed_element),
-            embed_atom_name_chars=from_torch(m.embed_atom_name_chars),
-            embed_atompair_ref_pos=from_torch(m.embed_atompair_ref_pos),
-            embed_atompair_ref_dist=from_torch(m.embed_atompair_ref_dist),
-            embed_atompair_mask=from_torch(m.embed_atompair_mask),
-            c_to_p_trans_q=from_torch(m.c_to_p_trans_q),
-            c_to_p_trans_k=from_torch(m.c_to_p_trans_k),
-            p_mlp=from_torch(m.p_mlp),
-            s_to_c_trans=opt("s_to_c_trans"),
-            z_to_p_trans=opt("z_to_p_trans"),
-            r_to_q_trans=opt("r_to_q_trans"),
-            cond_to_q_trans=opt("cond_to_q_trans"),
-            dt_gate_embed=opt("dt_gate_embed"),
-            dt_gate_log_w=opt("dt_gate_log_w"),
-            atom_encoder_layers=(
-                stack_modules([from_torch(x) for x in m.atom_encoder_layers])
-                if m.use_atom_encoder
-                else None
-            ),
-            atom_to_token_trans=opt("atom_to_token_trans"),
-            queries=m.atoms_per_window_queries,
-            keys=m.atoms_per_window_keys,
         )
 
 

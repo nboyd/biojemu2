@@ -17,7 +17,7 @@ from biojemu2.atom import (
     AtomStaticContext,
     DampedHarmonicTimeEmbedding,
 )
-from biojemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
+from biojemu2.backend import AbstractFromTorch, register_from_torch, stacked
 from biojemu2.nn import FourierEmbedding, LayerNorm, Linear, Sequential, Transition, scan_layers
 from biojemu2.transformer import (
     ConditionedTransformerLayer,
@@ -67,6 +67,18 @@ class PairwiseConditioning(AbstractFromTorch):
         for transition in self.transitions:
             z = z + transition(z)
         return z
+
+
+class Dynamics(eqx.Module):
+    """Implicit-transfer-operator conditioning: a companion frame and lag time.
+
+    ``is_conditioned=False`` (equilibrium sampling and structure prediction) zeroes both
+    contributions inside the network.
+    """
+
+    coords_cond: Float[Array, "N 3"]
+    dt: Float[Array, ""]
+    is_conditioned: Bool[Array, ""]
 
 
 class StructureInputs(eqx.Module):
@@ -148,32 +160,38 @@ class ReadoutSuperposition(AbstractFromTorch):
 
 
 class StaticContext(eqx.Module):
-    """Coordinate-independent structure-module inputs, computed once per system."""
+    """Everything the per-step network reads except the noisy sample: computed once per
+    system from the features and trunk outputs."""
 
+    s_inputs: Float[Array, "T Ds"]
+    s_trunk: Float[Array, "T S"]
     z: Float[Array, "T T Az"]
     atoms: AtomStaticContext
     inputs: StructureInputs
 
 
 @register_from_torch("bioemu2.biomoa.modules.diffusion.DualStreamDiffusionModule")
-class StructureModule(eqx.Module):
+class StructureModule(AbstractFromTorch):
     s_trunk_to_a: Sequential
     single_conditioner: SingleConditioning
     pairwise_conditioner: PairwiseConditioning
     atom_feature_embedder: AtomAttentionEncoder
     r_token_to_a: Linear
     readout: ReadoutSuperposition
-    layers: DualStreamDiffusionLayer  # stacked: leading layer axis
+    layers: DualStreamDiffusionLayer = stacked()
 
     def static_context(
         self,
         atoms: AtomInputs,
         inputs: StructureInputs,
+        s_inputs: Float[Array, "T Ds"],
         s_trunk: Float[Array, "T S"],
         z_trunk: Float[Array, "T T Z"],
         rel_pos: Float[Array, "T T Z"],
     ) -> StaticContext:
         return StaticContext(
+            s_inputs=s_inputs,
+            s_trunk=s_trunk,
             z=self.pairwise_conditioner(z_trunk, rel_pos),
             atoms=self.atom_feature_embedder.static_context(atoms, s_trunk, z_trunk),
             inputs=inputs,
@@ -182,22 +200,20 @@ class StructureModule(eqx.Module):
     def denoise(
         self,
         context: StaticContext,
-        s_inputs: Float[Array, "T Ds"],
-        s_trunk: Float[Array, "T S"],
         r_noisy: Float[Array, "N 3"],
         times: Float[Array, ""],
-        coords_cond: Float[Array, "N 3"],
-        is_conditioned: Bool[Array, ""],
-        dt: Float[Array, ""],
+        dynamics: Dynamics,
     ) -> Float[Array, "N 3"]:
         """Network output ``F(c_in x, c_noise(sigma))`` for one sample (unitless update)."""
-        f = context.inputs
+        f, d = context.inputs, dynamics
         r = jnp.where(f.atom_mask[:, None], r_noisy, 0.0)
-        c = self.single_conditioner(times, s_trunk, s_inputs, dt, is_conditioned)
-        q = self.atom_feature_embedder.coordinate_queries(
-            context.atoms, r, coords_cond, is_conditioned, dt
+        c = self.single_conditioner(
+            times, context.s_trunk, context.s_inputs, d.dt, d.is_conditioned
         )
-        a = self.s_trunk_to_a(s_trunk) + self.r_token_to_a(
+        q = self.atom_feature_embedder.coordinate_queries(
+            context.atoms, r, d.coords_cond, d.is_conditioned, d.dt
+        )
+        a = self.s_trunk_to_a(context.s_trunk) + self.r_token_to_a(
             gather_center_atoms(r, f.token_center_atom, f.token_valid)
         )
 
@@ -206,20 +222,3 @@ class StructureModule(eqx.Module):
 
         a, q = scan_layers(step, (a, q), self.layers)
         return self.readout(a, q, f)
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            **{
-                n: from_torch(getattr(m, n))
-                for n in (
-                    "s_trunk_to_a",
-                    "single_conditioner",
-                    "pairwise_conditioner",
-                    "atom_feature_embedder",
-                    "r_token_to_a",
-                    "readout",
-                )
-            },
-            layers=stack_modules([from_torch(layer) for layer in m.layers]),
-        )

@@ -24,12 +24,6 @@ class Linear(AbstractFromTorch):
         return y if self.bias is None else y + self.bias
 
 
-def layer_norm(x: Float[Array, "... D"], eps: float) -> Float[Array, "... D"]:
-    mean = x.mean(-1, keepdims=True)
-    var = jnp.square(x - mean).mean(-1, keepdims=True)
-    return (x - mean) * jax.lax.rsqrt(var + eps)
-
-
 @register_from_torch("torch.nn.LayerNorm")
 class LayerNorm(AbstractFromTorch):
     weight: Float[Array, " D"] | None
@@ -37,7 +31,7 @@ class LayerNorm(AbstractFromTorch):
     eps: float = eqx.field(static=True)
 
     def __call__(self, x: Float[Array, "... D"]) -> Float[Array, "... D"]:
-        x = layer_norm(x, self.eps)
+        x = jax.nn.standardize(x, epsilon=self.eps, algorithm="stable")
         if self.weight is not None:
             x = x * self.weight
         if self.bias is not None:

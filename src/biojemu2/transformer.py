@@ -9,14 +9,12 @@ import numpy as np
 from jaxtyping import Array, Bool, Float, Int
 
 from biojemu2.backend import AbstractFromTorch, register_from_torch, register_unwrap
-from biojemu2.nn import LayerNorm, Linear, Sequential, Transition, layer_norm
-
-_INF = 1e6  # the reference masks logits with -1e6
+from biojemu2.nn import LayerNorm, Linear, Sequential, Transition
 
 
 def ada_ln(x: Float[Array, "... D"], alpha: Float[Array, "... D"], beta: Float[Array, "... D"]):
     """``LN(x) * (1 + alpha) + beta`` with a parameter-free LayerNorm (eps 1e-5)."""
-    return layer_norm(x, 1e-5) * (1 + alpha) + beta
+    return jax.nn.standardize(x, epsilon=1e-5, algorithm="stable") * (1 + alpha) + beta
 
 
 def key_window_index(num_atoms: int, queries: int, keys: int) -> tuple[np.ndarray, np.ndarray]:
@@ -38,7 +36,8 @@ def window_keys(x: Float[Array, "N ..."], queries: int, keys: int) -> Float[Arra
     """Key-window view of per-atom values, zero outside the atom range (torch pad + unfold)."""
     index, in_range = key_window_index(x.shape[0], queries, keys)
     gathered = x[index]
-    return jnp.where(in_range.reshape(in_range.shape + (1,) * (x.ndim - 1)), gathered, 0)
+    in_range = in_range.reshape(in_range.shape + (1,) * (x.ndim - 1))
+    return jnp.where(in_range, gathered, jnp.zeros_like(gathered))
 
 
 class _PairBiasAttention(AbstractFromTorch):
@@ -53,12 +52,6 @@ class _PairBiasAttention(AbstractFromTorch):
     proj_o: Linear
     num_heads: int = eqx.field(static=True)
 
-    def _attend(self, q, k, v, bias, key_mask):
-        """q: [..., Q, H, d]; k, v: [..., K, H, d]; bias: [..., H, Q, K]; key_mask: [..., K]."""
-        logits = jnp.einsum("...qhd,...khd->...hqk", q, k) / np.sqrt(q.shape[-1]) + bias
-        logits = jnp.where(key_mask[..., None, None, :], logits, -_INF)
-        return jnp.einsum("...hqk,...khd->...qhd", jax.nn.softmax(logits, axis=-1), v)
-
 
 @register_from_torch("bioemu2.biomoa.ops.attention_pair_bias.AttentionPairBias")
 class AttentionPairBias(_PairBiasAttention):
@@ -72,7 +65,9 @@ class AttentionPairBias(_PairBiasAttention):
         heads = (T, self.num_heads, -1)
         q = (q + self.proj_q_bias).reshape(heads)
         bias = jnp.moveaxis(self.proj_z(self.norm_z(z)), -1, 0)  # [H, T, T]
-        o = self._attend(q, k.reshape(heads), v.reshape(heads), bias, mask)
+        o = jax.nn.dot_product_attention(
+            q, k.reshape(heads), v.reshape(heads), bias=bias, mask=mask[None, None]
+        )
         return self.proj_o(jax.nn.sigmoid(self.proj_g(s)) * o.reshape(T, C))
 
 
@@ -91,7 +86,9 @@ class AttentionPairBiasSlidingWindow(_PairBiasAttention):
         kv = window_keys(kv, W, H).reshape(NW, H, 2, self.num_heads, -1)  # zero pad (no bias)
         key_mask = window_keys(mask, W, H)  # out-of-range keys are False
         bias = jnp.moveaxis(self.proj_z(self.norm_z(p)), -1, 1)  # [NW, heads, W, H]
-        o = self._attend(q, kv[:, :, 0], kv[:, :, 1], bias, key_mask)
+        o = jax.nn.dot_product_attention(
+            q, kv[:, :, 0], kv[:, :, 1], bias=bias, mask=key_mask[:, None, None]
+        )
         return self.proj_o(jax.nn.sigmoid(self.proj_g(s)) * o.reshape(N, C))
 
 

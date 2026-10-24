@@ -48,29 +48,25 @@ class AbstractFromTorch(eqx.Module):
     """Convert a torch module by matching child-module, parameter and buffer names to fields.
 
     Fields absent from the torch module fall back to their dataclass defaults; torch
-    children/parameters with no matching field are an error.
+    children/parameters with no matching field are an error. :func:`stacked` fields
+    become one module with a leading layer axis.
     """
 
     @classmethod
     def from_torch(cls, module: Any):
-        names = {f.name for f in dataclasses.fields(cls)}
+        fields = dataclasses.fields(cls)
+        names = {f.name for f in fields}
+        torch_names = [n for n, _ in module.named_children()]
+        torch_names += [n for n, _ in module.named_parameters(recurse=False)]
+        if unmatched := [n for n in torch_names if n not in names]:
+            raise ValueError(f"{cls.__name__}: unmatched torch children/parameters {unmatched}")
         kwargs: dict[str, Any] = {}
-        for name, child in module.named_children():
-            if name not in names:
-                raise ValueError(f"{cls.__name__}: unmatched child module {name!r}")
-            kwargs[name] = from_torch(child)
-        for name, param in module.named_parameters(recurse=False):
-            if name not in names:
-                raise ValueError(f"{cls.__name__}: unmatched parameter {name!r}")
-            kwargs[name] = from_torch(param)
-        for name, buf in module.named_buffers(recurse=False):
-            if name in names:
-                kwargs[name] = from_torch(buf)
-        for f in dataclasses.fields(cls):
-            if f.name in kwargs:
-                continue
+        for f in fields:
             if hasattr(module, f.name):
-                kwargs[f.name] = from_torch(getattr(module, f.name))
+                value = from_torch(getattr(module, f.name))
+                if f.metadata.get("stacked") and value is not None:
+                    value = stack_modules(value)
+                kwargs[f.name] = value
             elif f.default is not dataclasses.MISSING:
                 kwargs[f.name] = f.default
             else:
@@ -78,7 +74,12 @@ class AbstractFromTorch(eqx.Module):
         return cls(**kwargs)
 
 
-def stack_modules(modules: list[eqx.Module]) -> eqx.Module:
+def stacked(**kwargs):
+    """Field converted from a torch ``ModuleList`` with :func:`stack_modules`."""
+    return eqx.field(metadata={"stacked": True}, **kwargs)
+
+
+def stack_modules(modules: tuple[eqx.Module, ...]) -> eqx.Module:
     """Identical modules as one module whose arrays gain a leading layer axis (for
     :func:`biojemu2.nn.scan_layers`). ``jax.tree.map`` rejects differing static structure."""
     return jax.tree.map(lambda *xs: jnp.stack(xs), *modules)

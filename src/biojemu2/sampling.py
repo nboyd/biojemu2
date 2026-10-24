@@ -13,9 +13,8 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
-from biojemu2.features import Dynamics
-from biojemu2.model import BioEmu2, TrunkEmbeddings
-from biojemu2.structure import StaticContext
+from biojemu2.model import BioEmu2
+from biojemu2.structure import Dynamics, StaticContext
 
 
 def edm_sigmas(
@@ -118,13 +117,12 @@ def rigid_align(
 def sample_from_noise(
     model: BioEmu2,
     context: StaticContext,
-    trunk: TrunkEmbeddings,
     dynamics: Dynamics,
-    atom_mask: Bool[Array, " N"],
     sampler: EDMSampler,
     noise: Noise,
 ) -> Float[Array, "N 3"]:
-    """Run the sampler with the given draws. ``atom_mask`` is ``Features.atom_mask``."""
+    """Run the sampler with the given draws."""
+    atom_mask = context.inputs.atom_mask
     sigmas = edm_sigmas(
         sampler.num_steps,
         sigma_min=model.sigma_min,
@@ -146,7 +144,7 @@ def sample_from_noise(
         # negative residual (the reference computes this in float64 on the host).
         x = x + sampler.noise_scale * jnp.sqrt(jnp.maximum(t_hat**2 - sigma**2, 0.0)) * eps
         x0 = model.denoise(
-            context, trunk, x, t_hat, Dynamics(coords_cond, dynamics.dt, dynamics.is_conditioned)
+            context, x, t_hat, Dynamics(coords_cond, dynamics.dt, dynamics.is_conditioned)
         )
         if sampler.align:
             x = jax.lax.stop_gradient(rigid_align(x, x0, atom_mask))
@@ -161,14 +159,13 @@ def sample_from_noise(
 def sample(
     model: BioEmu2,
     context: StaticContext,
-    trunk: TrunkEmbeddings,
     dynamics: Dynamics,
-    atom_mask: Bool[Array, " N"],
     sampler: EDMSampler,
     *,
     key: PRNGKeyArray,
 ) -> Float[Array, "N 3"]:
-    """Draw one structure. ``jax.vmap`` over keys for several (the trunk and static context
-    are shared, like the reference's ``multiplicity``)."""
-    noise = draw_noise(key, num_steps=sampler.num_steps, num_atoms=atom_mask.shape[0])
-    return sample_from_noise(model, context, trunk, dynamics, atom_mask, sampler, noise)
+    """Draw one structure. ``jax.vmap`` over keys for several (the static context is
+    shared, like the reference's ``multiplicity``)."""
+    num_atoms = context.inputs.atom_mask.shape[0]
+    noise = draw_noise(key, num_steps=sampler.num_steps, num_atoms=num_atoms)
+    return sample_from_noise(model, context, dynamics, sampler, noise)

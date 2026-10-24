@@ -151,8 +151,8 @@ def test_forward(models, case):
     atoms = case["context"].atom_encoder_context
     for name in ("q", "c", "p"):
         assert rel_err(getattr(context.atoms, name), getattr(atoms, name)[0].numpy()) < 2e-5, name
-    denoise = jax.vmap(model.denoise, in_axes=(None, None, 0, 0, None))
-    x0 = denoise(context, trunk, jnp.array(case["coords"]), jnp.array(case["sigmas"]), f.dynamics)
+    denoise = jax.vmap(model.denoise, in_axes=(None, 0, 0, None))
+    x0 = denoise(context, jnp.array(case["coords"]), jnp.array(case["sigmas"]), f.dynamics)
     assert rel_err(x0, case["denoised"]) < 2e-5
 
 
@@ -170,9 +170,9 @@ def test_sampling_with_replayed_noise(models, case):
         rho=7.0,
         align=True,
     )
-    run = jax.vmap(sample_from_noise, in_axes=(None, None, None, None, None, None, 0))
-    ours = np.asarray(run(model, context, trunk, f.dynamics, f.atom_mask, sampler, case["noise"]))
-    mask = np.asarray(f.atom_mask)
+    run = jax.vmap(sample_from_noise, in_axes=(None, None, None, None, 0))
+    ours = np.asarray(run(model, context, f.dynamics, sampler, case["noise"]))
+    mask = np.asarray(f.structure.atom_mask)
     ref = case["sampled"]
     scale = np.abs(ref[:, mask]).max()
     print(f"sample max|Δ| {np.abs(ours - ref)[:, mask].max():.1e} Å of {scale:.1f} Å", end="  ")

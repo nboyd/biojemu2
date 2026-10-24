@@ -52,14 +52,13 @@ trunk = model.embed(features, num_recycles=3)          # once per system
 context = model.static_context(features, trunk)       # once per system
 sampler = EDMSampler.structure_prediction(num_steps=200)  # or EDMSampler.equilibrium(...)
 keys = jax.random.split(jax.random.key(0), 8)
-coords = jax.vmap(lambda k: sample(model, context, trunk, features.dynamics,
-                                   features.atom_mask, sampler, key=k))(keys)
+coords = jax.vmap(lambda k: sample(model, context, features.dynamics, sampler, key=k))(keys)
 to_trajectory(system, coords).save_xtc("samples.xtc")
 ```
 
 See `examples/sample.py` for a runnable script. Everything is unbatched (one system;
 `T` tokens, `N` atoms); use `jax.vmap` over keys for several samples, which shares the
-trunk and static context exactly like the reference's `multiplicity`. Models are always
+static context exactly like the reference's `multiplicity`. Models are always
 passed as arguments to jitted functions.
 
 ### API
@@ -67,14 +66,14 @@ passed as arguments to jitted functions.
 ```python
 BioEmu2.embed(features: Features, *, num_recycles: int) -> TrunkEmbeddings
 BioEmu2.static_context(features: Features, trunk: TrunkEmbeddings) -> StaticContext
-BioEmu2.denoise(context, trunk, x: f32[N, 3], sigma: f32[], dynamics: Dynamics) -> f32[N, 3]  # x0, Å
+BioEmu2.denoise(context, x: f32[N, 3], sigma: f32[], dynamics: Dynamics) -> f32[N, 3]  # x0, Å
 
 EDMSampler(num_steps, step_scale, noise_scale, gamma_0, gamma_min, rho, align)
 EDMSampler.structure_prediction(num_steps)  # step_scale 1.5
 EDMSampler.equilibrium(num_steps)           # step_scale 1.0
 draw_noise(key, *, num_steps, num_atoms) -> Noise
-sample_from_noise(model, context, trunk, dynamics, atom_mask, sampler, noise) -> f32[N, 3]  # deterministic
-sample(model, context, trunk, dynamics, atom_mask, sampler, *, key) -> f32[N, 3]
+sample_from_noise(model, context, dynamics, sampler, noise) -> f32[N, 3]  # deterministic
+sample(model, context, dynamics, sampler, *, key) -> f32[N, 3]
 
 Features.from_reference_dict(feats)   # boundary adapter from bioemu2's feature dict
 convert_checkpoint(checkpoint_path, config_path) / convert_released(name)

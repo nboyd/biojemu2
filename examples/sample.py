@@ -48,11 +48,7 @@ sampler = (EDMSampler.structure_prediction if args.mode == "structure" else EDMS
 def run(model, features, sampler, keys):
     trunk = model.embed(features, num_recycles=3)
     context = model.static_context(features, trunk)
-    return jax.vmap(
-        lambda key: sample(
-            model, context, trunk, features.dynamics, features.atom_mask, sampler, key=key
-        )
-    )(keys)
+    return jax.vmap(lambda key: sample(model, context, features.dynamics, sampler, key=key))(keys)
 
 
 coords = run(

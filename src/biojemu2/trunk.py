@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from biojemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
+from biojemu2.backend import AbstractFromTorch, register_from_torch, stacked
 from biojemu2.nn import Embedding, FourierEmbedding, LayerNorm, Linear, Transition, scan_layers
 
 _INF = 1e6  # torch reference masks attention logits with -1e6, not -inf
@@ -214,19 +214,23 @@ class TrunkInputs(eqx.Module):
     token_bonds: Float[Array, "T T 1"]
     contact_conditioning: Float[Array, "T T 5"]
     contact_threshold: Float[Array, "T T"]
-    token_pad_mask: Bool[Array, " T"]
+    token_valid: Bool[Array, " T"]
     msa: Float[Array, "S T 33"]
     msa_mask: Bool[Array, "S T"]
     has_deletion: Float[Array, "S T"]
     deletion_value: Float[Array, "S T"]
     msa_paired: Float[Array, "S T"]
 
+    @property
+    def pair_mask(self) -> Bool[Array, "T T"]:
+        return self.token_valid[:, None] & self.token_valid[None, :]
+
 
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerMSAModule")
-class PairMixerMSAModule(eqx.Module):
+class PairMixerMSAModule(AbstractFromTorch):
     s_proj: Linear
     msa_proj: Linear
-    layers: PairMixerMSALayer  # stacked: leading layer axis
+    layers: PairMixerMSALayer = stacked()
     use_paired_feature: bool = eqx.field(static=True)
 
     def __call__(
@@ -237,35 +241,21 @@ class PairMixerMSAModule(eqx.Module):
         )
         m = self.msa_proj(jnp.concatenate([f.msa] + [x[..., None] for x in extra], axis=-1))
         m = m + self.s_proj(emb)[None]
-        pair_mask = f.token_pad_mask[:, None] & f.token_pad_mask[None, :]
 
         def step(layer, carry):
-            return layer(*carry, pair_mask, f.msa_mask)
+            return layer(*carry, f.pair_mask, f.msa_mask)
 
         return scan_layers(step, (z, m), self.layers)[0]
 
-    @classmethod
-    def from_torch(cls, m):
-        return cls(
-            s_proj=from_torch(m.s_proj),
-            msa_proj=from_torch(m.msa_proj),
-            layers=stack_modules([from_torch(layer) for layer in m.layers]),
-            use_paired_feature=m.use_paired_feature,
-        )
-
 
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerModule")
-class PairMixerModule(eqx.Module):
-    layers: PairMixerLayer  # stacked: leading layer axis
+class PairMixerModule(AbstractFromTorch):
+    layers: PairMixerLayer = stacked()
 
     def __call__(
         self, z: Float[Array, "T T Z"], pair_mask: Bool[Array, "T T"]
     ) -> Float[Array, "T T Z"]:
         return scan_layers(lambda layer, z: layer(z, pair_mask), z, self.layers)
-
-    @classmethod
-    def from_torch(cls, m):
-        return cls(layers=stack_modules([from_torch(layer) for layer in m.layers]))
 
 
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerSequenceEmbedder")
@@ -289,11 +279,10 @@ class PairMixerSequenceEmbedder(AbstractFromTorch):
     def _initial(
         self, s_inputs: Float[Array, "T Ds"], f: TrunkInputs
     ) -> tuple[Float[Array, "T S"], Float[Array, "T T Z"]]:
-        pair_mask = f.token_pad_mask[:, None] & f.token_pad_mask[None, :]
         s_init = self.s_init(s_inputs)
         z_init = self.z_init_1(s_inputs)[:, None] + self.z_init_2(s_inputs)[None, :]
         if self.method_conditioning is not None:
-            single, pair = self.method_conditioning(f.method_feature, f.token_pad_mask)
+            single, pair = self.method_conditioning(f.method_feature, f.token_valid)
             s_init = s_init + single
             if pair is not None:
                 z_init = z_init + pair
@@ -301,7 +290,7 @@ class PairMixerSequenceEmbedder(AbstractFromTorch):
         z_init = z_init + self.token_bonds(f.token_bonds)
         if self.contact_conditioning is not None:
             z_init = z_init + self.contact_conditioning(
-                f.contact_conditioning, f.contact_threshold, pair_mask
+                f.contact_conditioning, f.contact_threshold, f.pair_mask
             )
         return s_init, z_init
 
@@ -311,14 +300,13 @@ class PairMixerSequenceEmbedder(AbstractFromTorch):
         """Run ``num_recycles + 1`` trunk iterations. As in the reference, only the last
         iteration is differentiated; earlier iterations' outputs are detached."""
         s_init, z_init = self._initial(s_inputs, f)
-        pair_mask = f.token_pad_mask[:, None] & f.token_pad_mask[None, :]
 
         def iteration(carry):
             s, z = carry
             s = s_init + self.s_recycle(self.s_norm(s))
             z = z_init + self.z_recycle(self.z_norm(z))
             z = self.msa_module(z, s_inputs, f)
-            return s, self.pairmixer_module(z, pair_mask)
+            return s, self.pairmixer_module(z, f.pair_mask)
 
         carry = (jnp.zeros_like(s_init), jnp.zeros_like(z_init))
         carry = jax.lax.fori_loop(

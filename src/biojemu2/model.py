@@ -17,8 +17,8 @@ from jaxtyping import Array, Float
 
 from biojemu2.atom import InputEmbedder
 from biojemu2.backend import from_torch, register_from_torch
-from biojemu2.features import Dynamics, Features
-from biojemu2.structure import StaticContext, StructureModule
+from biojemu2.features import Features
+from biojemu2.structure import Dynamics, StaticContext, StructureModule
 from biojemu2.trunk import DistogramModule, PairMixerSequenceEmbedder, RelativePositionEncoder
 
 
@@ -44,24 +44,24 @@ class BioEmu2(eqx.Module):
     def embed(self, features: Features, *, num_recycles: int) -> TrunkEmbeddings:
         """Run the sequence trunk with ``num_recycles`` recycling iterations (the reference
         inference default is 3)."""
-        s_inputs = self.input_embedder(features.atom_inputs(), features.token_features())
-        single, pair = self.sequence_embedder(
-            s_inputs, features.trunk_inputs(), num_recycles=num_recycles
-        )
+        f = features.trunk
+        s_inputs = self.input_embedder(features.atoms, features.tokens)
+        single, pair = self.sequence_embedder(s_inputs, f, num_recycles=num_recycles)
         return TrunkEmbeddings(
             s_inputs=s_inputs,
             single=single,
             pair=pair,
             relative_position_encoding=self.rel_pos(
-                features.asym_id, features.entity_id, features.residue_index, features.sym_id
+                f.asym_id, f.entity_id, f.residue_index, f.sym_id
             ),
             distogram=self.distogram_module(pair),
         )
 
     def static_context(self, features: Features, trunk: TrunkEmbeddings) -> StaticContext:
         return self.structure_module.static_context(
-            features.atom_inputs(),
-            features.structure_inputs(),
+            features.atoms,
+            features.structure,
+            trunk.s_inputs,
             trunk.single,
             trunk.pair,
             trunk.relative_position_encoding,
@@ -83,21 +83,13 @@ class BioEmu2(eqx.Module):
     def denoise(
         self,
         context: StaticContext,
-        trunk: TrunkEmbeddings,
         x: Float[Array, "N 3"],
         sigma: Float[Array, ""],
         dynamics: Dynamics,
     ) -> Float[Array, "N 3"]:
         """Denoised coordinates (angstrom) for noisy coordinates ``x`` at noise level ``sigma``."""
         update = self.structure_module.denoise(
-            context,
-            trunk.s_inputs,
-            trunk.single,
-            self.c_in(sigma) * x,
-            self.c_noise(sigma),
-            dynamics.coords_cond,
-            dynamics.is_conditioned,
-            dynamics.dt,
+            context, self.c_in(sigma) * x, self.c_noise(sigma), dynamics
         )
         return self.c_skip(sigma) * x + self.c_out(sigma) * update
 
