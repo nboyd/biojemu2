@@ -15,11 +15,11 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from jbioemu2.atom import InputEmbedder
-from jbioemu2.backend import from_torch, register_from_torch
-from jbioemu2.features import Dynamics, Features
-from jbioemu2.structure import StaticContext, StructureModule
-from jbioemu2.trunk import DistogramModule, PairMixerSequenceEmbedder, RelativePositionEncoder
+from biojemu2.atom import InputEmbedder
+from biojemu2.backend import from_torch, register_from_torch
+from biojemu2.features import Dynamics, Features
+from biojemu2.structure import StaticContext, StructureModule
+from biojemu2.trunk import DistogramModule, PairMixerSequenceEmbedder, RelativePositionEncoder
 
 
 class TrunkEmbeddings(eqx.Module):

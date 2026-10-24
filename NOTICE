@@ -1,4 +1,4 @@
-jbioemu2 is a JAX/Equinox translation of the BioEmu2 score model and EDM sampler
+biojemu2 is a JAX/Equinox translation of the BioEmu2 score model and EDM sampler
 (https://github.com/microsoft/bioemu2, commit 06be369dd555849165a737472d42d936959e46fc),
 Copyright (c) Microsoft Corporation, licensed under the MIT License reproduced in LICENSE.
 The translation is distributed under the same MIT License.

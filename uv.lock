@@ -429,7 +429,7 @@ wheels = [
 ]
 
 [[package]]
-name = "jbioemu2"
+name = "biojemu2"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

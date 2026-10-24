@@ -8,7 +8,7 @@ from pathlib import Path
 import equinox as eqx
 import jax
 
-from jbioemu2.model import BioEmu2
+from biojemu2.model import BioEmu2
 
 
 def save_model(model: BioEmu2, path: Path) -> None:

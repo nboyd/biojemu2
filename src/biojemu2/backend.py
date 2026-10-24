@@ -2,7 +2,7 @@
 
 Equinox classes register the dotted path of the torch class they mirror with
 ``@register_from_torch("pkg.module.Class")``. Registration is bookkeeping only: this
-module never imports torch. ``jbioemu2.convert`` (the only torch importer) resolves
+module never imports torch. ``biojemu2.convert`` (the only torch importer) resolves
 the paths and dispatches through :func:`from_torch`.
 """
 
@@ -80,5 +80,5 @@ class AbstractFromTorch(eqx.Module):
 
 def stack_modules(modules: list[eqx.Module]) -> eqx.Module:
     """Identical modules as one module whose arrays gain a leading layer axis (for
-    :func:`jbioemu2.nn.scan_layers`). ``jax.tree.map`` rejects differing static structure."""
+    :func:`biojemu2.nn.scan_layers`). ``jax.tree.map`` rejects differing static structure."""
     return jax.tree.map(lambda *xs: jnp.stack(xs), *modules)

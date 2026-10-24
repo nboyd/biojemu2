@@ -1,5 +1,5 @@
 [project]
-name = "jbioemu2"
+name = "biojemu2"
 version = "0.1.0"
 description = "JAX/Equinox port of the BioEmu2 score model and EDM sampler."
 readme = "README.md"

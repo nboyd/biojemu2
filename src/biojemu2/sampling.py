@@ -13,9 +13,9 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
-from jbioemu2.features import Dynamics
-from jbioemu2.model import BioEmu2, TrunkEmbeddings
-from jbioemu2.structure import StaticContext
+from biojemu2.features import Dynamics
+from biojemu2.model import BioEmu2, TrunkEmbeddings
+from biojemu2.structure import StaticContext
 
 
 def edm_sigmas(

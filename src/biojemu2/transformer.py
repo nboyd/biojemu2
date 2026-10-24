@@ -8,8 +8,8 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.backend import AbstractFromTorch, register_from_torch, register_unwrap
-from jbioemu2.nn import LayerNorm, Linear, Sequential, Transition, layer_norm
+from biojemu2.backend import AbstractFromTorch, register_from_torch, register_unwrap
+from biojemu2.nn import LayerNorm, Linear, Sequential, Transition, layer_norm
 
 _INF = 1e6  # the reference masks logits with -1e6
 

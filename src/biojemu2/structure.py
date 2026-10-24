@@ -11,15 +11,15 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.atom import (
+from biojemu2.atom import (
     AtomAttentionEncoder,
     AtomInputs,
     AtomStaticContext,
     DampedHarmonicTimeEmbedding,
 )
-from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
-from jbioemu2.nn import FourierEmbedding, LayerNorm, Linear, Sequential, Transition, scan_layers
-from jbioemu2.transformer import (
+from biojemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
+from biojemu2.nn import FourierEmbedding, LayerNorm, Linear, Sequential, Transition, scan_layers
+from biojemu2.transformer import (
     ConditionedTransformerLayer,
     ada_ln,
     broadcast_tokens_to_atoms,

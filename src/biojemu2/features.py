@@ -15,9 +15,9 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.atom import AtomInputs, TokenFeatures
-from jbioemu2.structure import StructureInputs
-from jbioemu2.trunk import TrunkInputs
+from biojemu2.atom import AtomInputs, TokenFeatures
+from biojemu2.structure import StructureInputs
+from biojemu2.trunk import TrunkInputs
 
 
 class Dynamics(eqx.Module):

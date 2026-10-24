@@ -14,9 +14,9 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
-from jbioemu2.nn import Embedding, Linear, Sequential, scan_layers
-from jbioemu2.transformer import (
+from biojemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
+from biojemu2.nn import Embedding, Linear, Sequential, scan_layers
+from biojemu2.transformer import (
     ConditionedTransformerLayer,
     broadcast_tokens_to_atoms,
     key_window_index,
@@ -57,7 +57,7 @@ class AtomStaticContext(eqx.Module):
 
 
 class AtomInputs(eqx.Module):
-    """Reference-conformer atom features (see ``jbioemu2.features.Features``)."""
+    """Reference-conformer atom features (see ``biojemu2.features.Features``)."""
 
     ref_pos: Float[Array, "N 3"]
     charge: Float[Array, " N"]

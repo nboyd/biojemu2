@@ -1,4 +1,4 @@
-# jbioemu2
+# biojemu2
 
 A JAX/[Equinox](https://github.com/patrick-kidger/equinox) port of the
 [BioEmu2](https://github.com/microsoft/bioemu2) score model and its EDM sampler
@@ -20,7 +20,7 @@ and full token attention coupled per layer) that denoises Cartesian atom coordin
 | EDM sampler (stochastic churn, augmentation, Kabsch alignment) | | Embedding disk cache, bf16 autocast |
 | Weight conversion, torch-free save/load | | |
 
-`import jbioemu2` never imports torch; only `jbioemu2.convert` and `jbioemu2.reference` do.
+`import biojemu2` never imports torch; only `biojemu2.convert` and `biojemu2.reference` do.
 
 ## Install
 
@@ -36,9 +36,9 @@ import jax
 from bioemu2.data_interface import System
 from bioemu2.msa.alignment import MSA
 
-from jbioemu2 import EDMSampler, save_model, load_model, sample
-from jbioemu2.convert import convert_released          # needs `reference`
-from jbioemu2.reference import featurize, to_trajectory
+from biojemu2 import EDMSampler, save_model, load_model, sample
+from biojemu2.convert import convert_released          # needs `reference`
+from biojemu2.reference import featurize, to_trajectory
 
 model = convert_released()            # downloads microsoft/bioemu2 and converts (~10 s)
 save_model(model, "bioemu2_preview")  # later: load_model("bioemu2_preview"), torch-free

@@ -12,8 +12,8 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float, Int
 
-from jbioemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
-from jbioemu2.nn import Embedding, FourierEmbedding, LayerNorm, Linear, Transition, scan_layers
+from biojemu2.backend import AbstractFromTorch, from_torch, register_from_torch, stack_modules
+from biojemu2.nn import Embedding, FourierEmbedding, LayerNorm, Linear, Transition, scan_layers
 
 _INF = 1e6  # torch reference masks attention logits with -1e6, not -inf
 
@@ -204,7 +204,7 @@ class PairMixerMSALayer(AbstractFromTorch):
 
 
 class TrunkInputs(eqx.Module):
-    """Token-level trunk features (see ``jbioemu2.features.Features``)."""
+    """Token-level trunk features (see ``biojemu2.features.Features``)."""
 
     method_feature: Int[Array, " T"]
     asym_id: Int[Array, " T"]

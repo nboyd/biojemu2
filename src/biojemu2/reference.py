@@ -22,7 +22,7 @@ from bioemu2.structure.preparation import prepare_structure
 from bioemu2.trajectory_io import coords_angstrom_to_trajectory
 from jaxtyping import Array, Float
 
-from jbioemu2.features import Features
+from biojemu2.features import Features
 
 
 def featurize(

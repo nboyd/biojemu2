@@ -3,7 +3,7 @@
 Needs the ``reference`` extra and the ``microsoft/bioemu2`` checkpoint (downloaded on first
 use). Run with ``pytest -m reference``. Compares trunk embeddings, static context and
 denoising, and a full EDM sampling run whose random draws are recorded from torch and
-replayed through :func:`jbioemu2.sample_from_noise`.
+replayed through :func:`biojemu2.sample_from_noise`.
 """
 
 import jax
@@ -20,8 +20,8 @@ from bioemu2.msa.alignment import MSA
 from bioemu2.structure.batch import batch_collate
 from bioemu2.structure.preparation import prepare_structure
 
-import jbioemu2.convert as convert
-from jbioemu2 import EDMSampler, Features, Noise, sample_from_noise
+import biojemu2.convert as convert
+from biojemu2 import EDMSampler, Features, Noise, sample_from_noise
 
 pytestmark = pytest.mark.reference
 jax.config.update("jax_default_matmul_precision", "highest")

@@ -1,4 +1,4 @@
-"""Predict / sample structures for a small protein with jbioemu2.
+"""Predict / sample structures for a small protein with biojemu2.
 
     uv run --extra reference python examples/sample.py --out outputs/example
 
@@ -14,8 +14,8 @@ from bioemu2 import save_frames
 from bioemu2.data_interface import System
 from bioemu2.msa.alignment import MSA
 
-from jbioemu2 import EDMSampler, load_model, sample, save_model
-from jbioemu2.reference import featurize, to_trajectory
+from biojemu2 import EDMSampler, load_model, sample, save_model
+from biojemu2.reference import featurize, to_trajectory
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--sequence", default="MKTAYIAKQRQISFVKSHFSRQLE")
@@ -30,7 +30,7 @@ weights = args.out / "bioemu2_preview"
 if weights.with_suffix(".eqx").exists():
     model = load_model(weights)
 else:
-    from jbioemu2.convert import convert_released
+    from biojemu2.convert import convert_released
 
     model = convert_released()
     args.out.mkdir(parents=True, exist_ok=True)

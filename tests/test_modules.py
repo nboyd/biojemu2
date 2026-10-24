@@ -29,9 +29,9 @@ from bioemu2.biomoa.ops import (  # noqa: E402
     triangle_multiplication,
 )
 
-from jbioemu2.atom import AtomInputs, TokenFeatures  # noqa: E402
-from jbioemu2.convert import from_torch  # noqa: E402
-from jbioemu2.structure import StructureInputs  # noqa: E402
+from biojemu2.atom import AtomInputs, TokenFeatures  # noqa: E402
+from biojemu2.convert import from_torch  # noqa: E402
+from biojemu2.structure import StructureInputs  # noqa: E402
 
 jax.config.update("jax_default_matmul_precision", "highest")
 torch.set_float32_matmul_precision("highest")

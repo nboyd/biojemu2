@@ -8,14 +8,14 @@ from pathlib import Path
 import jax.numpy as jnp
 import torch
 
-import jbioemu2.atom  # noqa: F401  (registers classes)
-import jbioemu2.model  # noqa: F401
-import jbioemu2.nn  # noqa: F401
-import jbioemu2.structure  # noqa: F401
-import jbioemu2.transformer  # noqa: F401
-import jbioemu2.trunk  # noqa: F401
-from jbioemu2.backend import REGISTRY, from_torch
-from jbioemu2.model import BioEmu2
+import biojemu2.atom  # noqa: F401  (registers classes)
+import biojemu2.model  # noqa: F401
+import biojemu2.nn  # noqa: F401
+import biojemu2.structure  # noqa: F401
+import biojemu2.transformer  # noqa: F401
+import biojemu2.trunk  # noqa: F401
+from biojemu2.backend import REGISTRY, from_torch
+from biojemu2.model import BioEmu2
 
 
 def _resolve(path: str):

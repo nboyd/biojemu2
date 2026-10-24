@@ -7,12 +7,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jbioemu2.sampling import augment, edm_sigmas, random_rotation, rigid_align
-from jbioemu2.transformer import key_window_index, scatter_mean_atoms_to_tokens, window_keys
+from biojemu2.sampling import augment, edm_sigmas, random_rotation, rigid_align
+from biojemu2.transformer import key_window_index, scatter_mean_atoms_to_tokens, window_keys
 
 
 def test_import_is_torch_free():
-    code = "import sys, jbioemu2; assert 'torch' not in sys.modules"
+    code = "import sys, biojemu2; assert 'torch' not in sys.modules"
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
