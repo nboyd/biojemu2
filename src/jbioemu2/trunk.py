@@ -203,6 +203,25 @@ class PairMixerMSALayer(AbstractFromTorch):
         return z + self.z_transition(z), m
 
 
+class TrunkInputs(eqx.Module):
+    """Token-level trunk features (see ``jbioemu2.features.Features``)."""
+
+    method_feature: Int[Array, " T"]
+    asym_id: Int[Array, " T"]
+    entity_id: Int[Array, " T"]
+    residue_index: Int[Array, " T"]
+    sym_id: Int[Array, " T"]
+    token_bonds: Float[Array, "T T 1"]
+    contact_conditioning: Float[Array, "T T 5"]
+    contact_threshold: Float[Array, "T T"]
+    token_pad_mask: Bool[Array, " T"]
+    msa: Float[Array, "S T 33"]
+    msa_mask: Bool[Array, "S T"]
+    has_deletion: Float[Array, "S T"]
+    deletion_value: Float[Array, "S T"]
+    msa_paired: Float[Array, "S T"]
+
+
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerMSAModule")
 class PairMixerMSAModule(eqx.Module):
     s_proj: Linear
@@ -211,23 +230,17 @@ class PairMixerMSAModule(eqx.Module):
     use_paired_feature: bool = eqx.field(static=True)
 
     def __call__(
-        self,
-        z: Float[Array, "T T Z"],
-        emb: Float[Array, "T Ds"],
-        msa: Float[Array, "S T 33"],
-        msa_mask: Bool[Array, "S T"],
-        has_deletion: Float[Array, "S T"],
-        deletion_value: Float[Array, "S T"],
-        msa_paired: Float[Array, "S T"],
-        token_mask: Bool[Array, " T"],
+        self, z: Float[Array, "T T Z"], emb: Float[Array, "T Ds"], f: TrunkInputs
     ) -> Float[Array, "T T Z"]:
-        extra = [has_deletion, deletion_value] + ([msa_paired] if self.use_paired_feature else [])
-        m = self.msa_proj(jnp.concatenate([msa] + [x[..., None] for x in extra], axis=-1))
+        extra = [f.has_deletion, f.deletion_value] + (
+            [f.msa_paired] if self.use_paired_feature else []
+        )
+        m = self.msa_proj(jnp.concatenate([f.msa] + [x[..., None] for x in extra], axis=-1))
         m = m + self.s_proj(emb)[None]
-        pair_mask = token_mask[:, None] & token_mask[None, :]
+        pair_mask = f.token_pad_mask[:, None] & f.token_pad_mask[None, :]
 
         def step(layer, carry):
-            return layer(*carry, pair_mask, msa_mask)
+            return layer(*carry, pair_mask, f.msa_mask)
 
         return scan_layers(step, (z, m), self.layers)[0]
 
@@ -253,25 +266,6 @@ class PairMixerModule(eqx.Module):
     @classmethod
     def from_torch(cls, m):
         return cls(layers=stack_modules([from_torch(layer) for layer in m.layers]))
-
-
-class TrunkInputs(eqx.Module):
-    """Token-level trunk features (see ``jbioemu2.features.Features``)."""
-
-    method_feature: Int[Array, " T"]
-    asym_id: Int[Array, " T"]
-    entity_id: Int[Array, " T"]
-    residue_index: Int[Array, " T"]
-    sym_id: Int[Array, " T"]
-    token_bonds: Float[Array, "T T 1"]
-    contact_conditioning: Float[Array, "T T 5"]
-    contact_threshold: Float[Array, "T T"]
-    token_pad_mask: Bool[Array, " T"]
-    msa: Float[Array, "S T 33"]
-    msa_mask: Bool[Array, "S T"]
-    has_deletion: Float[Array, "S T"]
-    deletion_value: Float[Array, "S T"]
-    msa_paired: Float[Array, "S T"]
 
 
 @register_from_torch("bioemu2.biomoa.modules.pairmixer.PairMixerSequenceEmbedder")
@@ -323,16 +317,7 @@ class PairMixerSequenceEmbedder(AbstractFromTorch):
             s, z = carry
             s = s_init + self.s_recycle(self.s_norm(s))
             z = z_init + self.z_recycle(self.z_norm(z))
-            z = self.msa_module(
-                z,
-                s_inputs,
-                f.msa,
-                f.msa_mask,
-                f.has_deletion,
-                f.deletion_value,
-                f.msa_paired,
-                f.token_pad_mask,
-            )
+            z = self.msa_module(z, s_inputs, f)
             return s, self.pairmixer_module(z, pair_mask)
 
         carry = (jnp.zeros_like(s_init), jnp.zeros_like(z_init))
