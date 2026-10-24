@@ -1,0 +1,20 @@
+jbioemu2 is a JAX/Equinox translation of the BioEmu2 score model and EDM sampler
+(https://github.com/microsoft/bioemu2, commit 06be369dd555849165a737472d42d936959e46fc),
+Copyright (c) Microsoft Corporation, licensed under the MIT License reproduced in LICENSE.
+The translation is distributed under the same MIT License.
+
+Third-party portions carried over from the BioEmu2 sources that were translated:
+
+* BioMoA layers and operations, the atom attention encoder, contact conditioning, the
+  dual-stream diffusion module, and the EDM sampler / rigid alignment contain portions
+  adapted from Boltz (https://github.com/jwohlwend/boltz, v1.0.0 and commit
+  b1ebfc46ecf57f5414e0d1a6f9027bbb122c53bc), licensed under the MIT License reproduced in
+  licenses/LICENSE.BOLTZ-MIT. Copyright (c) 2024 Jeremy Wohlwend, Gabriele Corso, Saro Passaro.
+
+* The quaternion-to-rotation helper used for random augmentation is adapted from PyTorch3D
+  (https://github.com/facebookresearch/pytorch3d), licensed under the BSD License reproduced
+  in licenses/LICENSE.PYTORCH3D-BSD. Copyright (c) Meta Platforms, Inc. and affiliates.
+
+BioEmu2 model weights are downloaded from https://huggingface.co/microsoft/bioemu2 (MIT) and
+are not redistributed here. Featurization, MSA search, and the optional `reference` extra
+use the upstream BioEmu2 package and its own third-party notices.
