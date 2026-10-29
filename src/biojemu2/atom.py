@@ -192,7 +192,7 @@ class AtomAttentionEncoder(AbstractFromTorch):
 
 
 class TokenFeatures(eqx.Module):
-    res_type: Int[Array, " T"]
+    res_type: Float[Array, "T 33"]  # one-hot; a soft distribution is fine (design)
     profile: Float[Array, "T 33"]
     deletion_mean: Float[Array, " T"]
     pocket_feature: Int[Array, " T"]
@@ -201,18 +201,17 @@ class TokenFeatures(eqx.Module):
 @register_from_torch("bioemu2.biomoa.modules.embedders.InputEmbedder")
 class InputEmbedder(AbstractFromTorch):
     atom_attention_encoder: AtomAttentionEncoder
-    num_token_types: int = eqx.field(static=True)
     num_pocket_classes: int = eqx.field(static=True)
 
     def __call__(self, atoms: AtomInputs, tokens: TokenFeatures) -> Float[Array, "T Ds"]:
-        """``[atom encoding, one-hot res type, profile, deletion mean, one-hot pocket]``."""
+        """``[atom encoding, res type, profile, deletion mean, one-hot pocket]``."""
         a = self.atom_attention_encoder.encode_tokens(
             self.atom_attention_encoder.static_context(atoms), atoms
         )
         return jnp.concatenate(
             [
                 a,
-                jax.nn.one_hot(tokens.res_type, self.num_token_types),
+                tokens.res_type,
                 tokens.profile,
                 tokens.deletion_mean[:, None],
                 jax.nn.one_hot(tokens.pocket_feature, self.num_pocket_classes),

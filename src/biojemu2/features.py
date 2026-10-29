@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -45,7 +46,7 @@ class Features(eqx.Module):
         atom_to_token = get("token_idx_at_atom", i32)
         return cls(
             tokens=TokenFeatures(
-                res_type=get("res_type", i32),
+                res_type=jax.nn.one_hot(get("res_type", i32), 33),
                 profile=get("profile", f32),
                 deletion_mean=get("deletion_mean", f32),
                 pocket_feature=get("pocket_feature", i32),

@@ -250,14 +250,14 @@ def test_input_embedder():
         )
     )
     tokens = TokenFeatures(
-        res_type=jnp.array(s.rng.integers(0, 33, s.T)),
+        res_type=jax.nn.one_hot(s.rng.integers(0, 33, s.T), 33),
         profile=jnp.array(s.normal(s.T, 33)),
         deletion_mean=jnp.array(s.normal(s.T)),
         pocket_feature=jnp.array(s.rng.integers(0, 4, s.T)),
     )
     kw = _atom_kwargs(s)
     expected = ref(
-        res_type=t(np.asarray(tokens.res_type))[None].long(),
+        res_type=t(np.asarray(tokens.res_type).argmax(-1))[None].long(),
         profile=t(np.asarray(tokens.profile))[None],
         deletion_mean=t(np.asarray(tokens.deletion_mean))[None],
         pocket_feature=t(np.asarray(tokens.pocket_feature))[None].long(),
