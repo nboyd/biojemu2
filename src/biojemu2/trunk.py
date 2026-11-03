@@ -276,9 +276,10 @@ class PairMixerSequenceEmbedder(AbstractFromTorch):
     method_conditioning: MethodConditioning | None = None
     uncond_transition: Transition | None = None
 
-    def _initial(
+    def initial(
         self, s_inputs: Float[Array, "T Ds"], f: TrunkInputs
     ) -> tuple[Float[Array, "T S"], Float[Array, "T T Z"]]:
+        """``(s_init, z_init)``: what every trunk iteration adds its recycled state to."""
         s_init = self.s_init(s_inputs)
         z_init = self.z_init_1(s_inputs)[:, None] + self.z_init_2(s_inputs)[None, :]
         if self.method_conditioning is not None:
@@ -299,14 +300,10 @@ class PairMixerSequenceEmbedder(AbstractFromTorch):
     ) -> tuple[Float[Array, "T S"], Float[Array, "T T Z"]]:
         """Run ``num_recycles + 1`` trunk iterations. As in the reference, only the last
         iteration is differentiated; earlier iterations' outputs are detached."""
-        s_init, z_init = self._initial(s_inputs, f)
+        s_init, z_init = self.initial(s_inputs, f)
 
         def iteration(carry):
-            s, z = carry
-            s = s_init + self.s_recycle(self.s_norm(s))
-            z = z_init + self.z_recycle(self.z_norm(z))
-            z = self.msa_module(z, s_inputs, f)
-            return s, self.pairmixer_module(z, f.pair_mask)
+            return self.iteration(s_inputs, f, s_init, z_init, *carry)
 
         carry = (jnp.zeros_like(s_init), jnp.zeros_like(z_init))
         carry = jax.lax.fori_loop(
@@ -314,13 +311,28 @@ class PairMixerSequenceEmbedder(AbstractFromTorch):
         )
         return iteration(jax.lax.stop_gradient(carry))
 
+    def iteration(
+        self,
+        s_inputs: Float[Array, "T Ds"],
+        f: TrunkInputs,
+        s_init: Float[Array, "T S"],
+        z_init: Float[Array, "T T Z"],
+        s: Float[Array, "T S"],
+        z: Float[Array, "T T Z"],
+    ) -> tuple[Float[Array, "T S"], Float[Array, "T T Z"]]:
+        """Exactly one trunk iteration on the recycled ``(s, z)``."""
+        s = s_init + self.s_recycle(self.s_norm(s))
+        z = z_init + self.z_recycle(self.z_norm(z))
+        z = self.msa_module(z, s_inputs, f)
+        return s, self.pairmixer_module(z, f.pair_mask)
+
     def unconditional(
         self, s_inputs: Float[Array, "T Ds"], f: TrunkInputs
     ) -> tuple[Float[Array, "T S"], Float[Array, "T T Z"]]:
         """Lightweight unconditional branch (skips the MSA module and PairMixer stack)."""
         if self.uncond_transition is None:
             raise ValueError("this checkpoint has no unconditional branch")
-        s_init, z_init = self._initial(s_inputs, f)
+        s_init, z_init = self.initial(s_inputs, f)
         return s_init, z_init + self.uncond_transition(self.z_norm(z_init))
 
 

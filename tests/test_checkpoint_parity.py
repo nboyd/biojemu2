@@ -6,6 +6,7 @@ denoising, and a full EDM sampling run whose random draws are recorded from torc
 replayed through :func:`biojemu2.sample_from_noise`.
 """
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -154,6 +155,24 @@ def test_forward(models, case):
     denoise = jax.vmap(model.denoise, in_axes=(None, 0, 0, None))
     x0 = denoise(context, jnp.array(case["coords"]), jnp.array(case["sigmas"]), f.dynamics)
     assert rel_err(x0, case["denoised"]) < 2e-5
+
+
+def test_trunk_steps_compose_to_embed(models, case):
+    _, model = models
+    f = case["features"]
+
+    @eqx.filter_jit
+    def by_steps(model, f):
+        init = model.embed_inputs(f)
+        state = model.init_state(init)
+        for _ in range(NUM_RECYCLES + 1):
+            state = model.step(f, init, state)
+        return model.trunk_embeddings(f, init, state)
+
+    steps = by_steps(model, f)
+    trunk = eqx.filter_jit(lambda m, f: m.embed(f, num_recycles=NUM_RECYCLES))(model, f)
+    for name in ("s_inputs", "single", "pair", "relative_position_encoding", "distogram"):
+        assert rel_err(getattr(steps, name), getattr(trunk, name)) < 2e-5, name
 
 
 def test_sampling_with_replayed_noise(models, case):
