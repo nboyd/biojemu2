@@ -2,7 +2,10 @@
 
 Three stages, each a pure function of the model and its inputs:
 
-1. :meth:`BioEmu2.embed` -- sequence trunk (run once per system).
+1. :meth:`BioEmu2.embed` -- sequence trunk (run once per system). It can also be
+   driven one iteration at a time: :meth:`BioEmu2.embed_inputs`,
+   :meth:`BioEmu2.init_state`, :meth:`BioEmu2.step` (repeat), then
+   :meth:`BioEmu2.trunk_embeddings`.
 2. :meth:`BioEmu2.static_context` -- coordinate-independent structure-module inputs
    (once per system).
 3. :meth:`BioEmu2.denoise` -- EDM-preconditioned x0 prediction for one noisy sample
@@ -30,6 +33,21 @@ class TrunkEmbeddings(eqx.Module):
     distogram: Float[Array, "T T Bins"]
 
 
+class TrunkInit(eqx.Module):
+    """What every trunk iteration reads that stays fixed across iterations."""
+
+    s_inputs: Float[Array, "T Ds"]
+    s_init: Float[Array, "T S"]
+    z_init: Float[Array, "T T Z"]
+
+
+class TrunkState(eqx.Module):
+    """The recycled single and pair representations."""
+
+    single: Float[Array, "T S"]
+    pair: Float[Array, "T T Z"]
+
+
 @register_from_torch("bioemu2.biomoa.models.score_model.BioMoaCModel")
 class BioEmu2(eqx.Module):
     input_embedder: InputEmbedder
@@ -55,6 +73,38 @@ class BioEmu2(eqx.Module):
                 f.asym_id, f.entity_id, f.residue_index, f.sym_id
             ),
             distogram=self.distogram_module(pair),
+        )
+
+    def embed_inputs(self, features: Features) -> TrunkInit:
+        s_inputs = self.input_embedder(features.atoms, features.tokens)
+        s_init, z_init = self.sequence_embedder.initial(s_inputs, features.trunk)
+        return TrunkInit(s_inputs=s_inputs, s_init=s_init, z_init=z_init)
+
+    def init_state(self, init: TrunkInit) -> TrunkState:
+        """The recycled state before the first iteration (zeros)."""
+        return TrunkState(single=jnp.zeros_like(init.s_init), pair=jnp.zeros_like(init.z_init))
+
+    def step(self, features: Features, init: TrunkInit, state: TrunkState) -> TrunkState:
+        """Exactly one trunk iteration. ``embed(num_recycles=n)`` is ``n + 1`` of
+        these from `init_state`, each on a detached state."""
+        single, pair = self.sequence_embedder.iteration(
+            init.s_inputs, features.trunk, init.s_init, init.z_init, state.single, state.pair
+        )
+        return TrunkState(single=single, pair=pair)
+
+    def trunk_embeddings(
+        self, features: Features, init: TrunkInit, state: TrunkState
+    ) -> TrunkEmbeddings:
+        """The trunk output `static_context` reads, from a trunk state."""
+        f = features.trunk
+        return TrunkEmbeddings(
+            s_inputs=init.s_inputs,
+            single=state.single,
+            pair=state.pair,
+            relative_position_encoding=self.rel_pos(
+                f.asym_id, f.entity_id, f.residue_index, f.sym_id
+            ),
+            distogram=self.distogram_module(state.pair),
         )
 
     def static_context(self, features: Features, trunk: TrunkEmbeddings) -> StaticContext:
